@@ -1,0 +1,263 @@
+//@version=6
+indicator("MarkeTrend + Advanced Prediction", overlay=true, format=format.price, precision=2, max_labels_count=20, max_lines_count=20)
+// Habib0x
+// ===== Input Parameters =====
+var g_general = "📊 General Settings"
+var g_pred = "🤖 Advanced Prediction Settings"
+var g_visuals = "🎨 Visual Settings"
+var g_alerts = "🔔 Alert Settings"
+
+// General inputs
+atr_period = input.int(14, "ATR Period", minval=1, maxval=100, group=g_general, tooltip="Period for Average True Range calculation")
+atr_mult = input.float(2.5, "ATR Multiplier", minval=0.1, maxval=10.0, step=0.1, group=g_general, tooltip="Multiplier for ATR to set SuperTrend distance")
+src = input.source(hlc3, "Price Source", group=g_general, tooltip="Price source for calculations")
+
+// Enhanced prediction inputs
+use_prediction = input.bool(true, "Enable Advanced Prediction", group=g_pred)
+pred_method = input.string("Weighted Multi-Factor", "Prediction Method", options=["Simple Momentum", "RSI + MACD", "Weighted Multi-Factor", "ML-Style Ensemble"], group=g_pred)
+pred_length = input.int(21, "Prediction Lookback", minval=5, maxval=50, group=g_pred)
+smooth_factor = input.int(3, "Prediction Smoothing", minval=1, maxval=10, group=g_pred)
+
+// Technical indicator periods
+rsi_length = input.int(14, "RSI Period", minval=2, maxval=50, group=g_pred)
+macd_fast = input.int(12, "MACD Fast MA", minval=2, maxval=50, group=g_pred)
+macd_slow = input.int(26, "MACD Slow MA", minval=2, maxval=100, group=g_pred)
+macd_signal = input.int(9, "MACD Signal", minval=2, maxval=50, group=g_pred)
+bb_length = input.int(20, "Bollinger Bands Period", minval=5, maxval=50, group=g_pred)
+bb_mult = input.float(2.0, "BB Standard Deviation", minval=0.1, maxval=5.0, step=0.1, group=g_pred)
+
+// Visual settings
+show_prediction_bands = input.bool(true, "Show Prediction Confidence Bands", group=g_visuals)
+show_trend_fill = input.bool(true, "Fill SuperTrend Areas", group=g_visuals)
+show_prediction_labels = input.bool(true, "Show Price Prediction Labels", group=g_visuals)
+prediction_projection = input.int(5, "Prediction Bars Forward", minval=1, maxval=20, group=g_visuals)
+
+// Alert settings
+alert_on_trend_change = input.bool(true, "Alert on Trend Change", group=g_alerts)
+alert_on_strong_signals = input.bool(true, "Alert on Strong Prediction Signals", group=g_alerts)
+
+// ===== Enhanced Technical Indicators =====
+// Improved ATR with adaptive smoothing
+atr = ta.atr(atr_period)
+adaptive_atr = ta.ema(atr, math.round(atr_period / 2))
+
+// RSI with divergence detection
+rsi = ta.rsi(src, rsi_length)
+rsi_oversold = rsi < 30
+rsi_overbought = rsi > 70
+
+// Enhanced MACD
+[macdLine, signalLine, histLine] = ta.macd(src, macd_fast, macd_slow, macd_signal)
+macd_bullish = macdLine > signalLine and macdLine[1] <= signalLine[1]
+macd_bearish = macdLine < signalLine and macdLine[1] >= signalLine[1]
+
+// Bollinger Bands for volatility context
+bb_basis = ta.sma(src, bb_length)
+bb_dev = bb_mult * ta.stdev(src, bb_length)
+bb_upper = bb_basis + bb_dev
+bb_lower = bb_basis - bb_dev
+bb_squeeze = (bb_upper - bb_lower) / bb_basis < 0.1
+
+// Volume-weighted moving average for trend strength
+vwma = ta.vwma(src, pred_length)
+volume_trend = vwma > vwma[5] ? 1 : vwma < vwma[5] ? -1 : 0
+
+// ===== Improved SuperTrend Calculation =====
+up = src - (atr_mult * adaptive_atr)
+dn = src + (atr_mult * adaptive_atr)
+
+up1 = nz(up[1], up)
+up := close[1] > up1 ? math.max(up, up1) : up
+
+dn1 = nz(dn[1], dn)
+dn := close[1] < dn1 ? math.min(dn, dn1) : dn
+
+trend = 1
+trend := nz(trend[1], trend)
+trend := trend == -1 and close > dn1 ? 1 : trend == 1 and close < up1 ? -1 : trend
+
+// Trend strength measurement
+trend_strength = math.abs(ta.change(close, pred_length)) / ta.atr(pred_length)
+
+// ===== Advanced Prediction Engine =====
+// Custom tanh approximation function (bounded between -1 and 1)
+tanh_approx(x) => x / (1 + math.abs(x))
+
+// Multiple prediction methods
+simple_momentum() =>
+    momentum = ta.change(close, pred_length)
+    ta.sma(momentum, smooth_factor) / close
+
+rsi_macd_prediction() =>
+    rsi_signal = (rsi - 50) / 50
+    macd_change_signal = ta.change(macdLine, 1) / close
+    (rsi_signal * 0.6 + macd_change_signal * 0.4)
+
+weighted_multi_factor() =>
+    // Normalized factors
+    rsi_factor = (rsi - 50) / 50
+    macd_factor = macdLine / math.max(math.abs(macdLine), 0.0001)
+    vol_factor = (close - bb_basis) / bb_dev
+    momentum_factor = ta.change(close, 5) / close
+    volume_factor = volume_trend * 0.1
+    
+    // Dynamic weighting based on market conditions
+    volatility = ta.stdev(close, pred_length) / close
+    weight_adjustment = volatility > 0.02 ? 1.2 : 0.8
+    
+    weighted_signal = (rsi_factor * 0.25 + macd_factor * 0.25 + vol_factor * 0.2 + 
+                      momentum_factor * 0.2 + volume_factor * 0.1) * weight_adjustment
+    ta.ema(weighted_signal, smooth_factor)
+
+ml_ensemble() =>
+    // Ensemble of multiple timeframes and indicators
+    short_ema = ta.ema(close, 8)
+    long_ema = ta.ema(close, 21)
+    
+    ema_signal = (short_ema - long_ema) / long_ema
+    bb_signal = (close - bb_basis) / bb_dev
+    rsi_signal = (rsi - 50) / 50
+    macd_norm_signal = macdLine / math.max(math.abs(macdLine), 0.0001)
+    
+    // Non-linear combination using custom tanh
+    ensemble = tanh_approx(ema_signal * 2) * 0.3 + 
+               tanh_approx(bb_signal) * 0.25 + 
+               tanh_approx(rsi_signal) * 0.25 + 
+               tanh_approx(macd_norm_signal) * 0.2
+    
+    ta.ema(ensemble, smooth_factor)
+
+// Select prediction method
+prediction_signal = pred_method == "Simple Momentum" ? simple_momentum() : 
+                   pred_method == "RSI + MACD" ? rsi_macd_prediction() : 
+                   pred_method == "Weighted Multi-Factor" ? weighted_multi_factor() : 
+                   pred_method == "ML-Style Ensemble" ? ml_ensemble() : 
+                   weighted_multi_factor()
+
+// Calculate confidence level
+volatility = ta.stdev(close, pred_length) / close
+confidence = math.max(0.1, 1 - (volatility * 5))
+
+// Predicted price calculations
+base_prediction = close * (1 + prediction_signal * confidence)
+bullish_target = trend == 1 ? close * (1 + math.abs(prediction_signal) * confidence * 1.5) : na
+bearish_target = trend == -1 ? close * (1 - math.abs(prediction_signal) * confidence * 1.5) : na
+
+// ===== Signal Generation =====
+// Enhanced buy/sell signals with confirmation
+trend_changed_up = trend == 1 and trend[1] == -1
+trend_changed_down = trend == -1 and trend[1] == 1
+
+strong_bullish = prediction_signal > 0.01 and rsi < 70 and not bb_squeeze
+strong_bearish = prediction_signal < -0.01 and rsi > 30 and not bb_squeeze
+
+buy_signal = trend_changed_up and (strong_bullish or macd_bullish)
+sell_signal = trend_changed_down and (strong_bearish or macd_bearish)
+
+// Signal strength (0-100)
+signal_strength_bull = math.min(100, math.abs(prediction_signal * confidence * 1000))
+signal_strength_bear = math.min(100, math.abs(prediction_signal * confidence * 1000))
+
+// ===== Plotting =====
+// SuperTrend lines
+uptrend_line = plot(trend == 1 ? up : na, "Uptrend", style=plot.style_line, linewidth=3, color=color.new(color.green, 0))
+downtrend_line = plot(trend == -1 ? dn : na, "Downtrend", style=plot.style_line, linewidth=3, color=color.new(color.red, 0))
+
+// Fill areas between price and SuperTrend
+uptrend_fill = plot(show_trend_fill and trend == 1 ? close : na, color=color.new(color.white, 100))
+downtrend_fill = plot(show_trend_fill and trend == -1 ? close : na, color=color.new(color.white, 100))
+fill(uptrend_line, uptrend_fill, color=color.new(color.green, 95), title="Uptrend Fill")
+fill(downtrend_line, downtrend_fill, color=color.new(color.red, 95), title="Downtrend Fill")
+
+// Prediction plots
+pred_color = prediction_signal > 0 ? color.new(color.blue, 30) : color.new(color.orange, 30)
+plot(use_prediction ? base_prediction : na, "Base Prediction", color=pred_color, style=plot.style_circles, linewidth=2)
+
+plot(use_prediction and not na(bullish_target) ? bullish_target : na, "Bullish Target", color=color.new(color.lime, 40), style=plot.style_cross, linewidth=2)
+plot(use_prediction and not na(bearish_target) ? bearish_target : na, "Bearish Target", color=color.new(color.fuchsia, 40), style=plot.style_cross, linewidth=2)
+
+// Confidence bands
+volatility_buffer = volatility * close
+upper_confidence = base_prediction + volatility_buffer
+lower_confidence = base_prediction - volatility_buffer
+
+upper_band_plot = plot(show_prediction_bands and use_prediction ? upper_confidence : na, "Upper Confidence", color=color.new(color.blue, 85))
+lower_band_plot = plot(show_prediction_bands and use_prediction ? lower_confidence : na, "Lower Confidence", color=color.new(color.blue, 85))
+fill(upper_band_plot, lower_band_plot, color=color.new(color.blue, 95), title="Prediction Confidence")
+
+// Enhanced signal shapes
+plotshape(buy_signal, "Buy Signal", text="BUY", 
+         location=location.belowbar, style=shape.labelup, size=size.normal, 
+         color=color.new(color.green, 0), textcolor=color.white)
+
+plotshape(sell_signal, "Sell Signal", text="SELL", 
+         location=location.abovebar, style=shape.labeldown, size=size.normal, 
+         color=color.new(color.red, 0), textcolor=color.white)
+
+// ===== Dynamic Labels =====
+if show_prediction_labels and barstate.islast and use_prediction
+    // Format prediction values
+    pred_text = str.tostring(base_prediction, format.mintick)
+    confidence_text = str.tostring(confidence * 100, "#.#") + "%"
+    
+    // Main prediction label
+    label_x = bar_index + prediction_projection
+    pred_label_color = prediction_signal > 0 ? color.new(color.blue, 20) : color.new(color.orange, 20)
+    
+    label.new(label_x, base_prediction, 
+             text="🎯 Pred: " + pred_text + "\n📊 Conf: " + confidence_text, 
+             color=pred_label_color, textcolor=color.white, 
+             style=label.style_label_left, size=size.normal)
+    
+    // Target labels
+    if not na(bullish_target)
+        label.new(label_x, bullish_target, 
+                 text="🚀 Target: " + str.tostring(bullish_target, format.mintick), 
+                 color=color.new(color.lime, 20), textcolor=color.white, 
+                 style=label.style_label_left, size=size.small)
+    
+    if not na(bearish_target)
+        label.new(label_x, bearish_target, 
+                 text="📉 Target: " + str.tostring(bearish_target, format.mintick), 
+                 color=color.new(color.fuchsia, 20), textcolor=color.white, 
+                 style=label.style_label_left, size=size.small)
+
+// ===== Advanced Alerts =====
+// High confidence prediction alerts
+high_confidence_bull = prediction_signal > 0.02 and confidence > 0.7
+high_confidence_bear = prediction_signal < -0.02 and confidence > 0.7
+
+// All alert conditions (users can enable/disable in alert settings)
+alertcondition(alert_on_trend_change and trend_changed_up, "Trend Up", "SuperTrend changed to UPTREND")
+alertcondition(alert_on_trend_change and trend_changed_down, "Trend Down", "SuperTrend changed to DOWNTREND")
+alertcondition(alert_on_strong_signals and buy_signal, "Strong Buy", "Strong BUY signal detected!")
+alertcondition(alert_on_strong_signals and sell_signal, "Strong Sell", "Strong SELL signal detected!")
+alertcondition(high_confidence_bull, "High Confidence Bullish", "High confidence bullish prediction detected!")
+alertcondition(high_confidence_bear, "High Confidence Bearish", "High confidence bearish prediction detected!")
+
+// ===== Table for Quick Stats =====
+if barstate.islast
+    var info_table = table.new(position.top_right, 2, 6, bgcolor=color.new(color.white, 85), border_width=1)
+    
+    table.cell(info_table, 0, 0, "Metric", text_color=color.black, text_size=size.small)
+    table.cell(info_table, 1, 0, "Value", text_color=color.black, text_size=size.small)
+    
+    table.cell(info_table, 0, 1, "Trend", text_color=color.black, text_size=size.small)
+    table.cell(info_table, 1, 1, trend == 1 ? "UP ⬆" : "DOWN ⬇", 
+              text_color=trend == 1 ? color.green : color.red, text_size=size.small)
+    
+    table.cell(info_table, 0, 2, "Signal", text_color=color.black, text_size=size.small)
+    table.cell(info_table, 1, 2, prediction_signal > 0 ? "BULLISH" : "BEARISH", 
+              text_color=prediction_signal > 0 ? color.green : color.red, text_size=size.small)
+    
+    table.cell(info_table, 0, 3, "Confidence", text_color=color.black, text_size=size.small)
+    table.cell(info_table, 1, 3, str.tostring(confidence * 100, "#.#") + "%", 
+              text_color=color.black, text_size=size.small)
+    
+    table.cell(info_table, 0, 4, "RSI", text_color=color.black, text_size=size.small)
+    table.cell(info_table, 1, 4, str.tostring(rsi, "#.#"), 
+              text_color=rsi_overbought ? color.red : rsi_oversold ? color.green : color.black, text_size=size.small)
+    
+    table.cell(info_table, 0, 5, "Volatility", text_color=color.black, text_size=size.small)
+    table.cell(info_table, 1, 5, volatility > 0.03 ? "HIGH" : volatility < 0.01 ? "LOW" : "MED", 
+              text_color=color.black, text_size=size.small)
