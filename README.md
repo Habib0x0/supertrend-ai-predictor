@@ -1,6 +1,8 @@
 # supertrend-ai-predictor
 
 # MarkeTrend + Advanced Prediction 📊
+A TradingView Pine Script indicator that combines traditional SuperTrend analysis with advanced machine learning-inspired prediction algorithms for enhanced trading signals.
+
 <img width="2560" height="1440" alt="SuperTrend-AI-Preditor-1" src="https://github.com/user-attachments/assets/7343f96f-f9ef-48f7-8dbb-d12775d8260c" />
 
 
@@ -9,8 +11,8 @@
 <img width="2560" height="1440" alt="ETH-AI-SUPERTRNED" src="https://github.com/user-attachments/assets/238f0944-f2ae-473b-b518-367305115666" />
 
 
-A TradingView Pine Script indicator that combines traditional SuperTrend analysis with advanced machine learning-inspired prediction algorithms for enhanced trading signals.
-🌟 Features
+
+# 🌟 Features
 # Core Functionality
 
 Enhanced SuperTrend: Improved ATR-based trend detection with adaptive smoothing
